@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sparkles, ArrowRight, Brain, Target, Map, Briefcase, TrendingUp, MapPin, Star, CheckCircle, Zap, MessageCircle, BarChart2 } from "lucide-react";
+import { Sparkles, ArrowRight, Brain, Target, Map, Briefcase, TrendingUp, MapPin, Star, CheckCircle, Zap, MessageCircle, BarChart2, LogOut } from "lucide-react";
 import Link from "next/link";
 import { loadFromStore, STORE_KEYS } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
 
 type Profile = { name?: string; location_city?: string; education_level?: string };
 type Career = { title?: string; color?: string; reality_scores?: { passion_fit?: number; salary_potential?: number; future_growth?: number } };
@@ -28,6 +29,7 @@ const INSIGHTS = [
 ];
 
 export default function DashboardPage() {
+  const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [careerData, setCareerData] = useState<CareerData | null>(null);
   const [ikigai, setIkigai] = useState<IkigaiAnalysis | null>(null);
@@ -82,17 +84,25 @@ export default function DashboardPage() {
               <span className="font-display font-bold gradient-text-violet text-sm">Disha AI</span>
             </div>
             <h1 className="font-display text-3xl font-bold text-white">
-              {profile?.name ? `Welcome back, ${profile.name.split(" ")[0]} 👋` : "Welcome to Disha AI 👋"}
+              {user?.user_metadata?.full_name
+                ? `Welcome back, ${user.user_metadata.full_name.split(" ")[0]} 👋`
+                : profile?.name
+                ? `Welcome back, ${profile.name.split(" ")[0]} 👋`
+                : "Welcome to Disha AI 👋"}
             </h1>
             <p className="text-slate-400 text-sm flex items-center gap-1.5 mt-1">
-              {profile?.location_city && (<><MapPin className="w-3.5 h-3.5"/>{profile.location_city}</>)}
-              {profile?.education_level && <span className="text-slate-600">· {profile.education_level.replace(/_/g, " ")}</span>}
-              {!profile && "Complete onboarding to personalize Disha"}
+              {user?.email && <span className="text-slate-600">{user.email}</span>}
+              {profile?.location_city && (<><MapPin className="w-3.5 h-3.5 ml-2"/>{profile.location_city}</>)}
             </p>
           </div>
-          <Link href="/chat" className="btn-primary flex items-center gap-2 !py-2.5 shine">
-            <MessageCircle className="w-4 h-4"/> Ask Disha
-          </Link>
+          <div className="flex items-center gap-2">
+            <button onClick={signOut} className="btn-secondary flex items-center gap-1.5 !py-2 !px-3 text-xs text-slate-400 hover:text-rose-400 transition-colors">
+              <LogOut className="w-3.5 h-3.5"/>Sign Out
+            </button>
+            <Link href="/chat" className="btn-primary flex items-center gap-2 !py-2.5 shine">
+              <MessageCircle className="w-4 h-4"/> Ask Disha
+            </Link>
+          </div>
         </div>
 
         {/* AI Insight Banner */}

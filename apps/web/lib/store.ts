@@ -1,7 +1,7 @@
 /**
  * Disha AI — Client-side local state store
- * Uses localStorage to persist IKIGAI answers, profile, and career data
- * across pages without requiring auth for the MVP flow.
+ * Uses localStorage to persist IKIGAI answers, profile, and career data.
+ * Supabase sync helpers use createClient() from @supabase/ssr (browser).
  */
 
 export const STORE_KEYS = {
@@ -12,6 +12,8 @@ export const STORE_KEYS = {
   SELECTED_CAREER: "disha_selected_career",
   ROADMAP: "disha_roadmap",
 };
+
+// ─── LOCAL STORAGE ────────────────────────────────────────────
 
 export function saveToStore<T>(key: string, data: T): void {
   if (typeof window === "undefined") return;
@@ -39,41 +41,43 @@ export function clearStore(key?: string): void {
     localStorage.removeItem(key);
   } else {
     Object.values(STORE_KEYS).forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem("disha_milestones");
   }
 }
 
-// ─── SUPABASE SAVE HELPERS ─────────────────────────────────
-// These save data to Supabase when a user is authenticated.
-// Falls back to local store when no session exists.
+// ─── SUPABASE SYNC HELPERS ────────────────────────────────────
+// Save to Supabase when authenticated; always saves to localStorage first.
+
+async function getSupabase() {
+  const { createClient } = await import("@/lib/supabase");
+  return createClient();
+}
 
 export async function saveOnboardingProfile(
   data: Record<string, unknown>,
   userId?: string
 ): Promise<void> {
   saveToStore(STORE_KEYS.ONBOARDING, data);
-
   if (!userId) return;
 
   try {
-    const { createClientComponentClient } = await import("@supabase/auth-helpers-nextjs");
-    const supabase = createClientComponentClient();
-
-    await supabase.from("user_profiles").upsert({
+    const supabase = await getSupabase();
+    await supabase.from("profiles").upsert({
       user_id: userId,
-      full_name: data.name,
       age: data.age ? Number(data.age) : null,
-      gender: data.gender,
-      education_level: data.education_level,
-      location_city: data.location_city,
-      location_state: data.location_state,
-      interests: data.interests,
-      work_style: data.work_style,
-      life_goals: data.life_goals,
-      biggest_fears: data.biggest_fears,
+      gender: data.gender as string | null,
+      education_level: data.education_level as string | null,
+      location_city: data.location_city as string | null,
+      location_state: data.location_state as string | null,
+      interests: Array.isArray(data.interests) ? data.interests : [],
+      work_style_preferences: data.work_style || {},
+      life_goals: data.life_goals as string | null,
+      biggest_fears: data.biggest_fears as string | null,
+      onboarding_completed: true,
       updated_at: new Date().toISOString(),
     });
   } catch (e) {
-    console.warn("Supabase save failed (offline mode):", e);
+    console.warn("Supabase profile save failed (offline mode):", e);
   }
 }
 
@@ -84,25 +88,20 @@ export async function saveIkigaiData(
 ): Promise<void> {
   saveToStore(STORE_KEYS.IKIGAI_ANSWERS, answers);
   saveToStore(STORE_KEYS.IKIGAI_ANALYSIS, analysis);
-
   if (!userId) return;
 
   try {
-    const { createClientComponentClient } = await import("@supabase/auth-helpers-nextjs");
-    const supabase = createClientComponentClient();
-
+    const supabase = await getSupabase();
     await supabase.from("ikigai_responses").upsert({
       user_id: userId,
-      love_responses: { love_1: answers.love_1, love_2: answers.love_2 },
-      good_at_responses: { skill_1: answers.skill_1, skill_2: answers.skill_2 },
-      world_needs_responses: { world_1: answers.world_1, world_2: answers.world_2 },
-      can_earn_responses: { earn_1: answers.earn_1, earn_2: answers.earn_2 },
-      analysis_result: analysis,
-      ikigai_score: (analysis as { ikigai_score?: number }).ikigai_score || 0,
-      updated_at: new Date().toISOString(),
+      loves: [answers.love_1, answers.love_2].filter(Boolean),
+      good_at: [answers.skill_1, answers.skill_2].filter(Boolean),
+      world_needs: [answers.world_1, answers.world_2].filter(Boolean),
+      can_earn: [answers.earn_1, answers.earn_2].filter(Boolean),
+      ai_analysis: analysis,
     });
   } catch (e) {
-    console.warn("Supabase save failed (offline mode):", e);
+    console.warn("Supabase IKIGAI save failed (offline mode):", e);
   }
 }
 
@@ -110,24 +109,27 @@ export async function saveCareerMatches(
   careers: unknown[],
   userId?: string
 ): Promise<void> {
-  saveToStore(STORE_KEYS.CAREER_MATCHES, careers);
-
+  saveToStore(STORE_KEYS.CAREER_MATCHES, { careers });
   if (!userId) return;
 
   try {
-    const { createClientComponentClient } = await import("@supabase/auth-helpers-nextjs");
-    const supabase = createClientComponentClient();
+    const supabase = await getSupabase();
+    // Delete old matches first, then insert fresh
+    await supabase.from("career_matches").delete().eq("user_id", userId);
 
-    const topCareer = careers[0] as Record<string, unknown>;
-    await supabase.from("career_matches").upsert({
+    const rows = (careers as Record<string, unknown>[]).map((c, i) => ({
       user_id: userId,
-      career_title: topCareer.title,
-      career_category: topCareer.category,
-      match_score: (topCareer.reality_scores as Record<string, number>)?.passion_fit || 0,
-      all_matches: careers,
-      updated_at: new Date().toISOString(),
-    });
+      career_title: c.title as string,
+      career_category: c.category as string | null,
+      reality_scores: c.reality_scores || {},
+      ai_reasoning: c.reasoning as string | null,
+      salary_range: c.salary_range || {},
+      rank: i + 1,
+      is_primary: i === 0,
+    }));
+
+    await supabase.from("career_matches").insert(rows);
   } catch (e) {
-    console.warn("Supabase save failed (offline mode):", e);
+    console.warn("Supabase career save failed (offline mode):", e);
   }
 }
