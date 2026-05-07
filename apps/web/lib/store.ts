@@ -133,3 +133,145 @@ export async function saveCareerMatches(
     console.warn("Supabase career save failed (offline mode):", e);
   }
 }
+
+export async function saveRoadmapData(
+  roadmap: unknown,
+  milestoneStates: Record<string, boolean>,
+  userId?: string
+): Promise<void> {
+  saveToStore(STORE_KEYS.ROADMAP, roadmap);
+  saveToStore("disha_milestones", milestoneStates);
+  if (!userId) return;
+
+  try {
+    const supabase = await getSupabase();
+    
+    // First find if there's an existing active roadmap for this user
+    const { data: existing } = await supabase
+      .from("roadmaps")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .single();
+
+    const rm = roadmap as Record<string, unknown>;
+    const payload = {
+      user_id: userId,
+      title: rm.title as string,
+      description: rm.description as string,
+      total_duration_weeks: rm.total_weeks as number,
+      milestones: milestoneStates,
+      resources: rm.phases,
+      status: "active",
+      updated_at: new Date().toISOString()
+    };
+
+    if (existing?.id) {
+      await supabase.from("roadmaps").update(payload).eq("id", existing.id);
+    } else {
+      await supabase.from("roadmaps").insert([payload]);
+    }
+  } catch (e) {
+    console.warn("Supabase roadmap save failed (offline mode):", e);
+  }
+}
+
+// ─── CHAT SYNC HELPERS ──────────────────────────────────────
+
+export async function getOrCreateConversation(userId: string): Promise<string | null> {
+  try {
+    const supabase = await getSupabase();
+    // Try to find the most recent conversation
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.id) return existing.id;
+
+    // Create new conversation
+    const { data: newConv } = await supabase
+      .from("conversations")
+      .insert([{ user_id: userId, title: "My Career Chat" }])
+      .select("id")
+      .single();
+
+    return newConv?.id || null;
+  } catch (e) {
+    console.warn("Could not get or create conversation:", e);
+    return null;
+  }
+}
+
+export async function loadChatMessages(conversationId: string) {
+  try {
+    const supabase = await getSupabase();
+    const { data } = await supabase
+      .from("messages")
+      .select("id, role, content, created_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+    
+    return data || [];
+  } catch (e) {
+    console.warn("Could not load chat messages:", e);
+    return [];
+  }
+}
+
+export async function saveChatMessage(
+  conversationId: string,
+  role: "user" | "assistant",
+  content: string
+) {
+  try {
+    const supabase = await getSupabase();
+    await supabase.from("messages").insert([{
+      conversation_id: conversationId,
+      role,
+      content,
+    }]);
+} catch (e) {
+    console.warn("Could not save chat message:", e);
+  }
+}
+
+// ─── PROFILE AVATAR HELPERS ─────────────────────────────────
+
+export async function uploadAvatar(file: File, userId: string): Promise<string | null> {
+  try {
+    const supabase = await getSupabase();
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${userId}/avatar-${Date.now()}.${fileExt}`;
+
+    // Upload image
+    const { error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    // Get public URL
+    const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
+    const publicUrl = data.publicUrl;
+
+    // Update user metadata in auth.users
+    await supabase.auth.updateUser({
+      data: { avatar_url: publicUrl }
+    });
+
+    // Update public.users
+    await supabase
+      .from("users")
+      .update({ avatar_url: publicUrl })
+      .eq("id", userId);
+
+    return publicUrl;
+  } catch (error) {
+    console.error("Error uploading avatar:", error);
+    return null;
+  }
+}

@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Sparkles, Compass, RotateCcw, Bot, User } from "lucide-react";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
+import { getOrCreateConversation, loadChatMessages, saveChatMessage } from "@/lib/store";
 
 interface Message {
   id: string;
@@ -84,6 +86,8 @@ function Sidebar() {
 
 // ─── MAIN CHAT PAGE ────────────────────────────────────────
 export default function ChatPage() {
+  const { user } = useAuth();
+  const [convId, setConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -98,6 +102,29 @@ export default function ChatPage() {
   const [streamContent, setStreamContent] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    async function initChat() {
+      if (!user) return;
+      const cid = await getOrCreateConversation(user.id);
+      if (cid) {
+        setConvId(cid);
+        const history = await loadChatMessages(cid);
+        if (history && history.length > 0) {
+          setMessages([
+            messages[0], // Keep welcome message
+            ...history.map((m: any) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              timestamp: new Date(m.created_at),
+            }))
+          ]);
+        }
+      }
+    }
+    initChat();
+  }, [user]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -117,6 +144,10 @@ export default function ChatPage() {
     setInput("");
     setStreaming(true);
     setStreamContent("");
+
+    if (convId) {
+      saveChatMessage(convId, "user", text);
+    }
 
     try {
       const response = await fetch("/api/chat", {
@@ -161,6 +192,10 @@ export default function ChatPage() {
                 setMessages((prev) => [...prev, aiMsg]);
                 setStreamContent("");
                 setStreaming(false);
+
+                if (convId) {
+                  saveChatMessage(convId, "assistant", fullContent);
+                }
               }
             } catch {
               // continue

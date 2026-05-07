@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveToStore, STORE_KEYS } from "@/lib/store";
+import { STORE_KEYS, saveOnboardingProfile } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
 import {
   ChevronRight,
   ChevronLeft,
@@ -274,6 +275,7 @@ export default function OnboardingPage() {
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
 
+  const { user } = useAuth();
   const step = STEPS[currentStep - 1];
   const progress = (currentStep / STEPS.length) * 100;
 
@@ -283,7 +285,7 @@ export default function OnboardingPage() {
     } else {
       // Final step — save profile and redirect
       setLoading(true);
-      saveToStore(STORE_KEYS.ONBOARDING, formData);
+      await saveOnboardingProfile(formData, user?.id);
       await new Promise((r) => setTimeout(r, 800));
       router.push("/ikigai");
     }

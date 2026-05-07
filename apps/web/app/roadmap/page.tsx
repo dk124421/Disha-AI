@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { CheckCircle, Circle, ChevronDown, ChevronUp, Download, Sparkles, BookOpen, Trophy, ExternalLink, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { loadFromStore, saveToStore, STORE_KEYS } from "@/lib/store";
+import { loadFromStore, saveToStore, STORE_KEYS, saveRoadmapData } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
 
 type Resource = { title: string; url: string; free: boolean };
 type Milestone = { week: number; title: string; done: boolean; deliverable: string; resources?: Resource[] };
@@ -58,6 +59,7 @@ const FALLBACK_ROADMAP: Roadmap = {
 };
 
 export default function RoadmapPage() {
+  const { user } = useAuth();
   const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
   const [milestoneStates, setMilestoneStates] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 0: true });
@@ -93,7 +95,7 @@ export default function RoadmapPage() {
       const generated = data.roadmap as Roadmap;
       if (generated?.phases) {
         setRoadmap(generated);
-        saveToStore(STORE_KEYS.ROADMAP, generated);
+        saveRoadmapData(generated, milestoneStates, user?.id);
       } else {
         setRoadmap(FALLBACK_ROADMAP);
       }
@@ -108,7 +110,7 @@ export default function RoadmapPage() {
     const key = `${phaseIdx}-${milestoneIdx}`;
     const updated = { ...milestoneStates, [key]: !milestoneStates[key] };
     setMilestoneStates(updated);
-    saveToStore("disha_milestones", updated);
+    saveRoadmapData(roadmap, updated, user?.id);
   };
 
   const getTotalProgress = () => {
@@ -120,16 +122,23 @@ export default function RoadmapPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#050508] flex items-center justify-center px-4">
+      <div className="min-h-screen bg-[#050508] px-4 py-12">
         <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
-        <div className="relative z-10 text-center">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-600 to-violet-400 flex items-center justify-center mx-auto mb-6 pulse-glow">
-            <Sparkles className="w-10 h-10 text-white animate-spin"/>
+        <div className="absolute inset-0 bg-grid opacity-20" />
+        <div className="relative z-10 max-w-3xl mx-auto space-y-8">
+          <div className="flex items-start justify-between mb-8">
+            <div className="space-y-4 w-1/2">
+              <div className="w-24 h-6 bg-white/5 rounded-full animate-pulse" />
+              <div className="w-full h-10 bg-white/5 rounded-lg animate-pulse" />
+              <div className="w-3/4 h-4 bg-white/5 rounded-lg animate-pulse" />
+            </div>
           </div>
-          <h2 className="font-display text-2xl font-bold text-white mb-2">
-            {generating ? "Generating Your Roadmap..." : "Loading..."}
-          </h2>
-          <p className="text-slate-400 text-sm">Disha is creating your personalized 24-week plan</p>
+          <div className="glass rounded-2xl p-5 h-32 animate-pulse bg-white/5" />
+          <div className="space-y-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="glass rounded-2xl p-5 h-20 animate-pulse bg-white/5" />
+            ))}
+          </div>
         </div>
       </div>
     );

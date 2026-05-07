@@ -180,14 +180,19 @@ export default function CareerPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#050508] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600 to-violet-400 flex items-center justify-center mx-auto mb-6 pulse-glow">
-            <Brain className="w-8 h-8 text-white"/>
+      <div className="min-h-screen bg-[#050508] px-4 py-12">
+        <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
+        <div className="absolute inset-0 bg-grid opacity-20" />
+        <div className="relative z-10 max-w-3xl mx-auto space-y-6">
+          <div className="text-center mb-10 space-y-4">
+            <div className="w-40 h-8 bg-white/5 rounded-full animate-pulse mx-auto" />
+            <div className="w-3/4 h-10 bg-white/5 rounded-lg animate-pulse mx-auto" />
+            <div className="w-1/2 h-4 bg-white/5 rounded-lg animate-pulse mx-auto" />
           </div>
-          <h2 className="font-display text-2xl font-bold text-white mb-2">Loading Your Matches</h2>
-          <div className="flex gap-2 justify-center mt-4">
-            {[0,1,2].map((i) => <div key={i} className="w-2 h-2 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: `${i*0.2}s` }}/>)}
+          <div className="space-y-5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="glass rounded-2xl p-6 h-56 animate-pulse bg-white/5" />
+            ))}
           </div>
         </div>
       </div>

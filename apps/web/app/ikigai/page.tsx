@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, ChevronLeft, Sparkles, RotateCcw, CheckCircle } from "lucide-react";
-import { saveToStore, STORE_KEYS } from "@/lib/store";
+import { saveToStore, STORE_KEYS, saveIkigaiData, saveCareerMatches } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
 
 const QUESTIONS = [
   { id: "love_1", dim: "love", label: "What You Love", color: "#a855f7", question: "What activities make you completely lose track of time?", placeholder: "e.g. building websites, painting, solving puzzles..." },
@@ -53,6 +54,7 @@ export default function IkigaiPage() {
   const [step, setStep] = useState<AnalyzingStep>("idle");
   const [statusMsg, setStatusMsg] = useState("");
 
+  const { user } = useAuth();
   const q = QUESTIONS[currentQ];
   const isLast = currentQ === QUESTIONS.length - 1;
 
@@ -65,8 +67,7 @@ export default function IkigaiPage() {
         body: JSON.stringify({ answers }),
       });
       const { analysis } = await analyzeRes.json();
-      saveToStore(STORE_KEYS.IKIGAI_ANSWERS, answers);
-      saveToStore(STORE_KEYS.IKIGAI_ANALYSIS, analysis);
+      await saveIkigaiData(answers, analysis, user?.id);
 
       setStep("matching");
       setStatusMsg("Finding your ideal careers...");
@@ -76,7 +77,7 @@ export default function IkigaiPage() {
         body: JSON.stringify({ ikigai_answers: answers, profile: onboarding, ikigai_analysis: analysis }),
       });
       const careerData = await matchRes.json();
-      saveToStore(STORE_KEYS.CAREER_MATCHES, careerData);
+      await saveCareerMatches(careerData.careers, user?.id);
 
       setStep("done");
       setStatusMsg("Ready! Redirecting to your matches...");

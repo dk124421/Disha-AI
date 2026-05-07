@@ -1,71 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { MapPin, Briefcase, Globe, Building, Sparkles, ExternalLink, Filter } from "lucide-react";
+import { useEffect, useState } from "react";
+import { MapPin, Briefcase, Globe, Building, Sparkles, ExternalLink, Filter, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase";
+import { loadFromStore, STORE_KEYS } from "@/lib/store";
 
-const OPPORTUNITIES = [
-  {
-    title: "UI/UX Design Intern",
-    org: "TechNagpur Startup Hub",
-    type: "internship",
-    location: "Nagpur, MH",
-    remote: true,
-    stipend: "₹8,000/month",
-    tags: ["Design", "Figma", "Fresher-friendly"],
-    desc: "Work with early-stage startups in Nagpur's growing tech ecosystem. Build real products used by real people.",
-  },
-  {
-    title: "PM KUSUM Solar Scheme",
-    org: "Ministry of New & Renewable Energy",
-    type: "scheme",
-    location: "All India",
-    remote: false,
-    stipend: "Up to ₹6L subsidy",
-    tags: ["Government", "Solar", "Rural"],
-    desc: "Provides subsidy for installing solar pumps and plants. Ideal for youth in agricultural families looking to start businesses.",
-  },
-  {
-    title: "Graphic Design Freelancer",
-    org: "Fiverr / Upwork",
-    type: "gig",
-    location: "Remote",
-    remote: true,
-    stipend: "₹15,000–₹80,000/project",
-    tags: ["Freelance", "Creative", "Remote"],
-    desc: "Indian freelance designers earn significantly on global platforms. Start with small projects and build your profile.",
-  },
-  {
-    title: "Digital Marketing Executive",
-    org: "VidarbhaMart (Local MSME)",
-    type: "job",
-    location: "Nagpur, MH",
-    remote: false,
-    stipend: "₹15,000/month",
-    tags: ["Marketing", "Social Media", "MSME"],
-    desc: "Help local businesses grow online. This role often leads to significant responsibilities and growth opportunities.",
-  },
-  {
-    title: "PMKVY Skill Training",
-    org: "National Skill Development Corporation",
-    type: "skill_center",
-    location: "Nagpur",
-    remote: false,
-    stipend: "Free training + certificate",
-    tags: ["Free", "Government", "Certification"],
-    desc: "NSDC-certified courses in IT, design, and digital skills. Completely free for eligible students.",
-  },
-  {
-    title: "Content Writer (Remote)",
-    org: "Mumbai EdTech Company",
-    type: "job",
-    location: "Remote",
-    remote: true,
-    stipend: "₹20,000/month",
-    tags: ["Writing", "EdTech", "Remote"],
-    desc: "Write educational content for students across India. Work from anywhere with just a laptop.",
-  },
-];
+type Opportunity = {
+  id: string;
+  title: string;
+  organization: string;
+  type: string;
+  district: string;
+  state: string;
+  is_remote: boolean;
+  stipend: string;
+  description: string;
+  tags: string[];
+};
 
 const TYPE_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   internship: { bg: "rgba(168,85,247,0.12)", text: "#a855f7", label: "Internship" },
@@ -83,9 +35,9 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   skill_center: Sparkles,
 };
 
-function OpportunityCard({ opp }: { opp: typeof OPPORTUNITIES[0] }) {
-  const style = TYPE_COLORS[opp.type];
-  const Icon = TYPE_ICONS[opp.type];
+function OpportunityCard({ opp }: { opp: Opportunity }) {
+  const style = TYPE_COLORS[opp.type] || { bg: "rgba(255,255,255,0.1)", text: "#fff", label: opp.type };
+  const Icon = TYPE_ICONS[opp.type] || Briefcase;
 
   return (
     <div className="glass gradient-border rounded-2xl p-5 glass-hover">
@@ -96,7 +48,7 @@ function OpportunityCard({ opp }: { opp: typeof OPPORTUNITIES[0] }) {
           </div>
           <div>
             <h3 className="font-semibold text-white text-sm mb-0.5">{opp.title}</h3>
-            <p className="text-xs text-slate-400">{opp.org}</p>
+            <p className="text-xs text-slate-400">{opp.organization}</p>
           </div>
         </div>
         <span className="text-xs px-2 py-1 rounded-full flex-shrink-0" style={{ background: style.bg, color: style.text }}>
@@ -104,25 +56,25 @@ function OpportunityCard({ opp }: { opp: typeof OPPORTUNITIES[0] }) {
         </span>
       </div>
 
-      <p className="text-xs text-slate-400 leading-relaxed mb-3">{opp.desc}</p>
+      <p className="text-xs text-slate-400 leading-relaxed mb-3">{opp.description}</p>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 text-xs text-slate-400">
             <MapPin className="w-3 h-3" />
-            {opp.location}
+            {opp.district ? `${opp.district}, ${opp.state || ""}` : "All India"}
           </div>
-          {opp.remote && (
+          {opp.is_remote && (
             <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
               🌐 Remote OK
             </span>
           )}
         </div>
-        <span className="text-xs font-semibold text-white">{opp.stipend}</span>
+        <span className="text-xs font-semibold text-white">{opp.stipend || "TBD"}</span>
       </div>
 
       <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-white/5">
-        {opp.tags.map((tag) => (
+        {opp.tags?.map((tag) => (
           <span key={tag} className="text-xs glass px-2 py-0.5 rounded-full border border-white/5 text-slate-400">
             {tag}
           </span>
@@ -137,10 +89,42 @@ function OpportunityCard({ opp }: { opp: typeof OPPORTUNITIES[0] }) {
 
 export default function OpportunitiesPage() {
   const [filter, setFilter] = useState("all");
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [location, setLocation] = useState("Nagpur");
+
+  useEffect(() => {
+    const fetchOpps = async () => {
+      const supabase = createClient();
+      const profile = loadFromStore<any>(STORE_KEYS.ONBOARDING);
+      const userCity = profile?.location_city || "Nagpur";
+      setLocation(userCity);
+
+      const { data, error } = await supabase
+        .from("opportunities")
+        .select("*")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+
+      if (data) {
+        // Prioritize opportunities in user's city or remote
+        const sorted = data.sort((a: any, b: any) => {
+          if (a.district === userCity && b.district !== userCity) return -1;
+          if (b.district === userCity && a.district !== userCity) return 1;
+          if (a.is_remote && !b.is_remote) return -1;
+          if (b.is_remote && !a.is_remote) return 1;
+          return 0;
+        });
+        setOpportunities(sorted as Opportunity[]);
+      }
+      setLoading(false);
+    };
+    fetchOpps();
+  }, []);
 
   const filtered = filter === "all"
-    ? OPPORTUNITIES
-    : OPPORTUNITIES.filter((o) => o.type === filter);
+    ? opportunities
+    : opportunities.filter((o) => o.type === filter);
 
   return (
     <div className="min-h-screen bg-[#050508] px-4 py-12">
@@ -156,7 +140,7 @@ export default function OpportunitiesPage() {
             </h1>
             <div className="flex items-center gap-2 text-slate-400 text-sm">
               <MapPin className="w-4 h-4 text-cyan-400" />
-              Nagpur, Maharashtra · AI-curated for your profile
+              {location}, Maharashtra · AI-curated for your profile
             </div>
           </div>
           <Link href="/dashboard" className="btn-secondary text-sm !py-2 !px-4">
@@ -168,8 +152,8 @@ export default function OpportunitiesPage() {
         <div className="glass-violet gradient-border rounded-2xl p-4 mb-6 flex items-start gap-3">
           <Sparkles className="w-4 h-4 text-violet-400 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-slate-300">
-            <span className="text-violet-300 font-semibold">Disha found 6 opportunities</span> matching your UX design interests and Nagpur location.
-            3 are remote-friendly. The PMKVY skill training is especially recommended as a free starting point.
+            <span className="text-violet-300 font-semibold">Disha found {opportunities.length} opportunities</span> matching your interests and {location} location.
+            We recommend prioritizing remote opportunities or those close to your location.
           </p>
         </div>
 
@@ -196,9 +180,19 @@ export default function OpportunitiesPage() {
 
         {/* Cards */}
         <div className="space-y-4">
-          {filtered.map((opp, i) => (
-            <OpportunityCard key={i} opp={opp} />
-          ))}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+            </div>
+          ) : filtered.length > 0 ? (
+            filtered.map((opp, i) => (
+              <OpportunityCard key={i} opp={opp} />
+            ))
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              No opportunities found matching this filter.
+            </div>
+          )}
         </div>
 
         {/* Chat CTA */}

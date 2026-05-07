@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sparkles, ArrowRight, Brain, Target, Map, Briefcase, TrendingUp, MapPin, Star, CheckCircle, Zap, MessageCircle, BarChart2, LogOut } from "lucide-react";
+import { Sparkles, ArrowRight, Brain, Target, Map, Briefcase, TrendingUp, MapPin, Star, CheckCircle, Zap, MessageCircle, BarChart2, LogOut, User, UploadCloud, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { loadFromStore, STORE_KEYS } from "@/lib/store";
+import { loadFromStore, STORE_KEYS, uploadAvatar } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 
 type Profile = { name?: string; location_city?: string; education_level?: string };
@@ -15,9 +15,10 @@ type Roadmap = { title?: string; phases?: { milestones: unknown[] }[] };
 const NAV_ITEMS = [
   { href: "/ikigai", icon: Brain, label: "IKIGAI Quiz", desc: "Discover your sweet spot", color: "#a855f7", badge: null },
   { href: "/career", icon: Target, label: "Career Matches", desc: "View your AI matches", color: "#22d3ee", badge: null },
+  { href: "/twin", icon: Sparkles, label: "Career AI Twin", desc: "5-Year simulation", color: "#f43f5e", badge: "New" },
   { href: "/roadmap", icon: Map, label: "My Roadmap", desc: "Your learning path", color: "#f59e0b", badge: null },
-  { href: "/opportunities", icon: Briefcase, label: "Opportunities", desc: "Jobs, gigs & schemes", color: "#10b981", badge: "New" },
-  { href: "/chat", icon: MessageCircle, label: "Chat with Disha", desc: "Your AI mentor", color: "#f43f5e", badge: null },
+  { href: "/opportunities", icon: Briefcase, label: "Opportunities", desc: "Jobs, gigs & schemes", color: "#10b981", badge: null },
+  { href: "/chat", icon: MessageCircle, label: "Chat with Disha", desc: "Your AI mentor", color: "#3b82f6", badge: null },
 ];
 
 const INSIGHTS = [
@@ -37,6 +38,8 @@ export default function DashboardPage() {
   const [milestones, setMilestones] = useState<Record<string, boolean>>({});
   const [insight, setInsight] = useState("");
   const [mounted, setMounted] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -47,6 +50,23 @@ export default function DashboardPage() {
     setMilestones(loadFromStore<Record<string, boolean>>("disha_milestones") || {});
     setInsight(INSIGHTS[Math.floor(Date.now() / 86400000) % INSIGHTS.length]);
   }, []);
+
+  useEffect(() => {
+    if (user?.user_metadata?.avatar_url) {
+      setAvatarUrl(user.user_metadata.avatar_url);
+    }
+  }, [user]);
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setUploadingAvatar(true);
+    const url = await uploadAvatar(file, user.id);
+    if (url) {
+      setAvatarUrl(url);
+    }
+    setUploadingAvatar(false);
+  };
 
   const topCareer = careerData?.careers?.[0];
   const totalMilestones = roadmap?.phases?.reduce((sum, p) => sum + p.milestones.length, 0) || 0;
@@ -76,24 +96,48 @@ export default function DashboardPage() {
       <div className="relative z-10 max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-8">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-violet-400 flex items-center justify-center">
-                <Sparkles className="w-3.5 h-3.5 text-white"/>
-              </div>
-              <span className="font-display font-bold gradient-text-violet text-sm">Disha AI</span>
+          <div className="flex items-center gap-5">
+            {/* Avatar Upload */}
+            <div className="relative group">
+              <label className="cursor-pointer block relative">
+                <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-white/10 bg-white/5 flex items-center justify-center transition-all group-hover:border-violet-500/50">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-6 h-6 text-slate-400" />
+                  )}
+                  {uploadingAvatar && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center backdrop-blur-sm">
+                      <Loader2 className="w-5 h-5 text-violet-400 animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-violet-600 border-2 border-[#050508] flex items-center justify-center shadow-lg transform scale-0 group-hover:scale-100 transition-transform">
+                  <UploadCloud className="w-3.5 h-3.5 text-white" />
+                </div>
+                <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar || !user} />
+              </label>
             </div>
-            <h1 className="font-display text-3xl font-bold text-white">
-              {user?.user_metadata?.full_name
-                ? `Welcome back, ${user.user_metadata.full_name.split(" ")[0]} 👋`
-                : profile?.name
-                ? `Welcome back, ${profile.name.split(" ")[0]} 👋`
-                : "Welcome to Disha AI 👋"}
-            </h1>
-            <p className="text-slate-400 text-sm flex items-center gap-1.5 mt-1">
-              {user?.email && <span className="text-slate-600">{user.email}</span>}
-              {profile?.location_city && (<><MapPin className="w-3.5 h-3.5 ml-2"/>{profile.location_city}</>)}
-            </p>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-violet-600 to-violet-400 flex items-center justify-center">
+                  <Sparkles className="w-3 h-3 text-white"/>
+                </div>
+                <span className="font-display font-bold gradient-text-violet text-xs uppercase tracking-wider">Disha AI</span>
+              </div>
+              <h1 className="font-display text-3xl font-bold text-white">
+                {user?.user_metadata?.full_name
+                  ? `Welcome back, ${user.user_metadata.full_name.split(" ")[0]} 👋`
+                  : profile?.name
+                  ? `Welcome back, ${profile.name.split(" ")[0]} 👋`
+                  : "Welcome to Disha AI 👋"}
+              </h1>
+              <p className="text-slate-400 text-sm flex items-center gap-1.5 mt-1">
+                {user?.email && <span className="text-slate-600">{user.email}</span>}
+                {profile?.location_city && (<><MapPin className="w-3.5 h-3.5 ml-2"/>{profile.location_city}</>)}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={signOut} className="btn-secondary flex items-center gap-1.5 !py-2 !px-3 text-xs text-slate-400 hover:text-rose-400 transition-colors">
