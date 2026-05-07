@@ -1,234 +1,246 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { Sparkles, ArrowRight, Brain, Target, Map, Briefcase, TrendingUp, MapPin, Star, CheckCircle, Zap, MessageCircle, BarChart2 } from "lucide-react";
 import Link from "next/link";
-import { ArrowRight, Sparkles, Brain, Target, Map, MessageCircle, MapPin, TrendingUp, Star, Zap, ChevronRight, Compass } from "lucide-react";
+import { loadFromStore, STORE_KEYS } from "@/lib/store";
 
-// ─── MOCK USER DATA ────────────────────────────────────────
-const USER = {
-  name: "Priya",
-  location: "Nagpur, Maharashtra",
-  education: "Undergraduate",
-  ikigai_score: 78,
-  top_career: "UX/Product Designer",
-  roadmap_progress: 25,
-  next_milestone: "Visual Design Principles",
-  streak: 5,
-};
+type Profile = { name?: string; location_city?: string; education_level?: string };
+type Career = { title?: string; color?: string; reality_scores?: { passion_fit?: number; salary_potential?: number; future_growth?: number } };
+type CareerData = { careers?: Career[] };
+type IkigaiAnalysis = { ikigai_score?: number; sweet_spot?: string };
+type Roadmap = { title?: string; phases?: { milestones: unknown[] }[] };
 
-// ─── STAT CARD ──────────────────────────────────────────────
-function StatCard({ label, value, sub, color, icon: Icon }: {
-  label: string; value: string | number; sub: string; color: string; icon: React.ElementType;
-}) {
-  return (
-    <div className="glass gradient-border rounded-2xl p-5 glass-hover">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-slate-400">{label}</span>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${color}18` }}>
-          <Icon className="w-4 h-4" style={{ color }} />
-        </div>
-      </div>
-      <div className="font-display text-2xl font-bold text-white mb-0.5">{value}</div>
-      <div className="text-xs text-slate-500">{sub}</div>
-    </div>
-  );
-}
+const NAV_ITEMS = [
+  { href: "/ikigai", icon: Brain, label: "IKIGAI Quiz", desc: "Discover your sweet spot", color: "#a855f7", badge: null },
+  { href: "/career", icon: Target, label: "Career Matches", desc: "View your AI matches", color: "#22d3ee", badge: null },
+  { href: "/roadmap", icon: Map, label: "My Roadmap", desc: "Your learning path", color: "#f59e0b", badge: null },
+  { href: "/opportunities", icon: Briefcase, label: "Opportunities", desc: "Jobs, gigs & schemes", color: "#10b981", badge: "New" },
+  { href: "/chat", icon: MessageCircle, label: "Chat with Disha", desc: "Your AI mentor", color: "#f43f5e", badge: null },
+];
 
-// ─── QUICK ACTION ──────────────────────────────────────────
-function QuickAction({ href, emoji, title, desc, color }: {
-  href: string; emoji: string; title: string; desc: string; color: string;
-}) {
-  return (
-    <Link href={href} className="glass gradient-border rounded-2xl p-5 glass-hover flex items-start gap-4 group">
-      <span className="text-2xl">{emoji}</span>
-      <div className="flex-1 min-w-0">
-        <h3 className="font-semibold text-white text-sm mb-1 group-hover:text-violet-300 transition-colors">{title}</h3>
-        <p className="text-xs text-slate-400 leading-relaxed">{desc}</p>
-      </div>
-      <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-violet-400 transition-colors flex-shrink-0 mt-0.5" />
-    </Link>
-  );
-}
+const INSIGHTS = [
+  "The gap between dreaming and doing is called action. Your roadmap is waiting.",
+  "Careers built on passion + skill are the hardest to replace by AI.",
+  "Tier-2 India is producing world-class talent. Location is no longer your limit.",
+  "The best career isn't the most prestigious — it's the one you'll still love in 10 years.",
+  "Start before you're ready. Ship before it's perfect. Learn as you go.",
+];
 
-// ─── DASHBOARD ──────────────────────────────────────────────
 export default function DashboardPage() {
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [careerData, setCareerData] = useState<CareerData | null>(null);
+  const [ikigai, setIkigai] = useState<IkigaiAnalysis | null>(null);
+  const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
+  const [milestones, setMilestones] = useState<Record<string, boolean>>({});
+  const [insight, setInsight] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setProfile(loadFromStore<Profile>(STORE_KEYS.ONBOARDING));
+    setCareerData(loadFromStore<CareerData>(STORE_KEYS.CAREER_MATCHES));
+    setIkigai(loadFromStore<IkigaiAnalysis>(STORE_KEYS.IKIGAI_ANALYSIS));
+    setRoadmap(loadFromStore<Roadmap>(STORE_KEYS.ROADMAP));
+    setMilestones(loadFromStore<Record<string, boolean>>("disha_milestones") || {});
+    setInsight(INSIGHTS[Math.floor(Date.now() / 86400000) % INSIGHTS.length]);
+  }, []);
+
+  const topCareer = careerData?.careers?.[0];
+  const totalMilestones = roadmap?.phases?.reduce((sum, p) => sum + p.milestones.length, 0) || 0;
+  const doneMilestones = Object.values(milestones).filter(Boolean).length;
+  const roadmapProgress = totalMilestones > 0 ? Math.round((doneMilestones / totalMilestones) * 100) : 0;
+
+  if (!mounted) return null;
+
+  const hasStarted = !!profile;
+  const hasIkigai = !!ikigai?.ikigai_score;
+  const hasCareers = !!topCareer;
+  const hasRoadmap = !!roadmap?.title;
+
+  const journeySteps = [
+    { label: "Profile Setup", done: hasStarted, href: "/onboarding" },
+    { label: "IKIGAI Assessment", done: hasIkigai, href: "/ikigai" },
+    { label: "Career Matches", done: hasCareers, href: "/career" },
+    { label: "Roadmap Active", done: hasRoadmap, href: "/roadmap" },
+  ];
+  const journeyPct = Math.round((journeySteps.filter((s) => s.done).length / journeySteps.length) * 100);
 
   return (
-    <div className="min-h-screen bg-[#050508]">
+    <div className="min-h-screen bg-[#050508] px-4 py-12">
       <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
       <div className="absolute inset-0 bg-grid opacity-20" />
 
-      <div className="relative z-10 max-w-6xl mx-auto px-4 py-8">
-        {/* Top nav */}
-        <nav className="flex items-center justify-between mb-10">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-600 to-violet-400 flex items-center justify-center">
-              <Compass className="w-4 h-4 text-white" />
+      <div className="relative z-10 max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-violet-400 flex items-center justify-center">
+                <Sparkles className="w-3.5 h-3.5 text-white"/>
+              </div>
+              <span className="font-display font-bold gradient-text-violet text-sm">Disha AI</span>
             </div>
-            <span className="font-display font-bold text-lg gradient-text-violet">Disha AI</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 glass rounded-full px-3 py-1.5">
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-xs text-amber-300 font-semibold">{USER.streak}-day streak</span>
-            </div>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-purple-400 flex items-center justify-center text-sm font-bold text-white">
-              {USER.name[0]}
-            </div>
-          </div>
-        </nav>
-
-        {/* Welcome */}
-        <div className="mb-8">
-          <h1 className="font-display text-3xl font-bold text-white mb-1">
-            {greeting}, {USER.name} 👋
-          </h1>
-          <p className="text-slate-400">
-            {USER.location} · {USER.education}
-          </p>
-        </div>
-
-        {/* AI Insight banner */}
-        <div className="glass-violet gradient-border rounded-2xl p-5 mb-8 flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-5 h-5 text-violet-400" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-violet-200 mb-1">Disha&rsquo;s Insight for Today</p>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Your IKIGAI analysis shows strong creative-analytical balance — rare and valuable in UX design.
-              You&rsquo;re 25% through your roadmap. Complete the &quot;Visual Design Principles&quot; milestone this week to stay on track.
+            <h1 className="font-display text-3xl font-bold text-white">
+              {profile?.name ? `Welcome back, ${profile.name.split(" ")[0]} 👋` : "Welcome to Disha AI 👋"}
+            </h1>
+            <p className="text-slate-400 text-sm flex items-center gap-1.5 mt-1">
+              {profile?.location_city && (<><MapPin className="w-3.5 h-3.5"/>{profile.location_city}</>)}
+              {profile?.education_level && <span className="text-slate-600">· {profile.education_level.replace(/_/g, " ")}</span>}
+              {!profile && "Complete onboarding to personalize Disha"}
             </p>
           </div>
-          <Link href="/chat" className="btn-primary !py-2 !px-4 text-xs shine flex-shrink-0">
-            Ask Disha
+          <Link href="/chat" className="btn-primary flex items-center gap-2 !py-2.5 shine">
+            <MessageCircle className="w-4 h-4"/> Ask Disha
           </Link>
         </div>
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard label="IKIGAI Score" value={`${USER.ikigai_score}%`} sub="Purpose alignment" color="#a855f7" icon={Star} />
-          <StatCard label="Top Career Match" value="UX Design" sub="92% passion fit" color="#22d3ee" icon={Target} />
-          <StatCard label="Roadmap Progress" value={`${USER.roadmap_progress}%`} sub="Week 6 of 24" color="#f59e0b" icon={Map} />
-          <StatCard label="Career Score" value="88/100" sub="Market readiness" color="#10b981" icon={TrendingUp} />
+        {/* AI Insight Banner */}
+        <div className="glass-violet gradient-border rounded-2xl p-5 mb-8 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-violet-400"/>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-violet-400 mb-1">Disha&apos;s Insight for Today</div>
+            <p className="text-sm text-white leading-relaxed">&ldquo;{insight}&rdquo;</p>
+          </div>
         </div>
 
-        {/* Main grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Quick actions */}
-          <div className="lg:col-span-2 space-y-4">
-            <h2 className="font-display font-bold text-white text-lg mb-4">Continue Your Journey</h2>
-
-            <QuickAction
-              href="/chat"
-              emoji="💬"
-              title="Chat with Disha"
-              desc="Ask about career decisions, get honest advice, discuss your fears and goals."
-              color="#a855f7"
-            />
-            <QuickAction
-              href="/ikigai"
-              emoji="🌀"
-              title="Refine Your IKIGAI"
-              desc="Update your assessment as you learn more about yourself. Your answers evolve."
-              color="#22d3ee"
-            />
-            <QuickAction
-              href="/roadmap"
-              emoji="🗺️"
-              title="Your Learning Roadmap"
-              desc={`Next: "${USER.next_milestone}" — Week 6 of 24. You're making great progress.`}
-              color="#f59e0b"
-            />
-            <QuickAction
-              href="/opportunities"
-              emoji="📍"
-              title="Local Opportunities"
-              desc="Internships, government schemes, and startup opportunities near Nagpur."
-              color="#10b981"
-            />
+        {/* Journey Progress */}
+        <div className="glass gradient-border rounded-2xl p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display font-bold text-white">Your Journey</h2>
+            <span className="text-sm font-semibold gradient-text">{journeyPct}% complete</span>
           </div>
+          <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-4">
+            <div className="h-full progress-gradient rounded-full transition-all duration-700" style={{ width: `${journeyPct}%` }}/>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {journeySteps.map((s) => (
+              <Link key={s.label} href={s.href} className={`flex items-center gap-2 glass rounded-xl p-3 border transition-all ${s.done ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/5 hover:border-violet-500/30"}`}>
+                {s.done ? <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0"/> : <div className="w-4 h-4 rounded-full border-2 border-slate-600 flex-shrink-0"/>}
+                <span className={`text-xs font-medium ${s.done ? "text-white" : "text-slate-500"}`}>{s.label}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
 
-          {/* Right: Career snapshot */}
-          <div className="space-y-4">
-            <h2 className="font-display font-bold text-white text-lg mb-4">Career Snapshot</h2>
-
-            <div className="glass gradient-border rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-slate-400 font-medium">Your Top Match</p>
-                <Link href="/career" className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1">
-                  See all <ArrowRight className="w-3 h-3" />
-                </Link>
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {[
+            { label: "IKIGAI Score", value: ikigai?.ikigai_score ? `${ikigai.ikigai_score}%` : "—", icon: Brain, color: "#a855f7", sub: "Overall fit" },
+            { label: "Career Matches", value: careerData?.careers?.length || "—", icon: Target, color: "#22d3ee", sub: "AI generated" },
+            { label: "Roadmap Progress", value: `${roadmapProgress}%`, icon: BarChart2, color: "#f59e0b", sub: `${doneMilestones}/${totalMilestones} done` },
+            { label: "Top Match Score", value: topCareer?.reality_scores?.passion_fit ? `${topCareer.reality_scores.passion_fit}%` : "—", icon: Star, color: "#10b981", sub: "Passion fit" },
+          ].map((stat) => (
+            <div key={stat.label} className="glass gradient-border rounded-2xl p-4">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: `${stat.color}18` }}>
+                <stat.icon className="w-4.5 h-4.5" style={{ color: stat.color }}/>
               </div>
-              <h3 className="font-display font-bold text-white text-lg mb-1">UX/Product Designer</h3>
-              <p className="text-xs text-slate-400 mb-4">Design & Technology</p>
+              <div className="font-display text-2xl font-black text-white mb-0.5">{stat.value}</div>
+              <div className="text-xs text-slate-500">{stat.label}</div>
+              <div className="text-xs" style={{ color: stat.color }}>{stat.sub}</div>
+            </div>
+          ))}
+        </div>
 
-              <div className="space-y-2.5">
-                {[
-                  { label: "Passion Fit", value: 92, color: "#10b981" },
-                  { label: "Market Demand", value: 88, color: "#22d3ee" },
-                  { label: "Remote Work", value: 95, color: "#a855f7" },
-                  { label: "Future Growth", value: 90, color: "#f59e0b" },
-                ].map((m) => (
-                  <div key={m.label}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">{m.label}</span>
-                      <span className="font-medium" style={{ color: m.color }}>{m.value}%</span>
-                    </div>
-                    <div className="score-bar">
-                      <div
-                        className="score-bar-fill"
-                        style={{ width: `${m.value}%`, background: m.color }}
-                      />
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Top Career */}
+          <div className="lg:col-span-2 glass gradient-border rounded-2xl p-6">
+            <h3 className="font-display font-bold text-white mb-4 flex items-center gap-2">
+              <Target className="w-4 h-4 text-cyan-400"/> Your Top Career Match
+            </h3>
+            {topCareer ? (
+              <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center font-display font-black text-sm" style={{ background: `${topCareer.color || "#a855f7"}20`, color: topCareer.color || "#a855f7" }}>
+                    #1
+                  </div>
+                  <div>
+                    <div className="font-display text-xl font-bold text-white">{topCareer.title}</div>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Star className="w-3 h-3 text-amber-400 fill-amber-400"/>
+                      <span className="text-xs text-slate-400">{topCareer.reality_scores?.passion_fit}% passion fit</span>
                     </div>
                   </div>
-                ))}
-              </div>
-
-              <Link href="/career" className="block w-full btn-primary text-center text-sm !py-2.5 mt-4 shine">
-                Full Reality Report →
-              </Link>
-            </div>
-
-            {/* Mentor suggestion */}
-            <div className="glass rounded-2xl p-4 border border-white/5">
-              <div className="flex items-center gap-2 mb-3">
-                <MessageCircle className="w-4 h-4 text-violet-400" />
-                <span className="text-sm font-semibold text-white">Ask Disha</span>
-              </div>
-              <div className="space-y-2">
-                {[
-                  "What skills should I build first?",
-                  "How do I build a UX portfolio?",
-                  "Can I get a UX job without a degree?",
-                ].map((q) => (
-                  <Link
-                    key={q}
-                    href={`/chat`}
-                    className="block text-xs text-slate-400 hover:text-violet-300 transition-colors py-1.5 px-3 glass rounded-lg hover:border hover:border-violet-500/20"
-                  >
-                    &ldquo;{q}&rdquo;
+                </div>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  {[
+                    { label: "Passion", value: topCareer.reality_scores?.passion_fit },
+                    { label: "Salary", value: topCareer.reality_scores?.salary_potential },
+                    { label: "Growth", value: topCareer.reality_scores?.future_growth },
+                  ].map((m) => (
+                    <div key={m.label} className="glass rounded-xl p-3 text-center">
+                      <div className="font-display text-lg font-bold" style={{ color: topCareer.color || "#a855f7" }}>{m.value}%</div>
+                      <div className="text-xs text-slate-500">{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3">
+                  <Link href="/career" className="btn-primary flex items-center gap-1.5 text-sm !py-2.5 flex-1 justify-center shine">
+                    View All Matches <ArrowRight className="w-3.5 h-3.5"/>
                   </Link>
-                ))}
+                  <Link href="/roadmap" className="btn-secondary flex items-center gap-1.5 text-sm !py-2.5 flex-1 justify-center">
+                    My Roadmap
+                  </Link>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="text-center py-8">
+                <Brain className="w-12 h-12 text-slate-700 mx-auto mb-3"/>
+                <p className="text-slate-500 text-sm mb-4">Take the IKIGAI quiz to get your personalized career matches</p>
+                <Link href="/ikigai" className="btn-primary inline-flex items-center gap-2 text-sm !py-2.5 shine">
+                  <Sparkles className="w-4 h-4"/> Start IKIGAI Quiz
+                </Link>
+              </div>
+            )}
+          </div>
 
-            {/* Location insight */}
-            <div className="glass rounded-2xl p-4 border border-white/5">
-              <div className="flex items-center gap-2 mb-3">
-                <MapPin className="w-4 h-4 text-cyan-400" />
-                <span className="text-sm font-semibold text-white">Nagpur Opportunities</span>
-              </div>
-              <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-                3 UX internships and 2 remote design jobs available near you this week.
-              </p>
-              <Link href="/opportunities" className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1">
-                View opportunities <ArrowRight className="w-3 h-3" />
-              </Link>
+          {/* Quick Navigation */}
+          <div className="glass gradient-border rounded-2xl p-6">
+            <h3 className="font-display font-bold text-white mb-4 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400"/> Quick Actions
+            </h3>
+            <div className="space-y-2">
+              {NAV_ITEMS.map((item) => (
+                <Link key={item.href} href={item.href} className="flex items-center gap-3 glass rounded-xl p-3 border border-white/5 hover:border-white/10 glass-hover group transition-all">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${item.color}18` }}>
+                    <item.icon className="w-4 h-4" style={{ color: item.color }}/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-white">{item.label}</div>
+                    <div className="text-xs text-slate-500 truncate">{item.desc}</div>
+                  </div>
+                  {item.badge && (
+                    <span className="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full px-1.5 py-0.5">{item.badge}</span>
+                  )}
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 transition-colors flex-shrink-0"/>
+                </Link>
+              ))}
             </div>
           </div>
         </div>
+
+        {/* Roadmap Progress */}
+        {hasRoadmap && (
+          <div className="glass gradient-border rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display font-bold text-white flex items-center gap-2"><TrendingUp className="w-4 h-4 text-amber-400"/> Roadmap Progress</h3>
+              <Link href="/roadmap" className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1">View full <ArrowRight className="w-3 h-3"/></Link>
+            </div>
+            <div className="flex items-center gap-4 mb-3">
+              <div className="font-display text-3xl font-black gradient-text">{roadmapProgress}%</div>
+              <div className="flex-1">
+                <div className="h-3 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full progress-gradient rounded-full transition-all duration-700" style={{ width: `${roadmapProgress}%` }}/>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">{doneMilestones} of {totalMilestones} milestones completed</p>
+              </div>
+            </div>
+            {roadmap.title && <p className="text-sm text-slate-300">{roadmap.title}</p>}
+          </div>
+        )}
       </div>
     </div>
   );

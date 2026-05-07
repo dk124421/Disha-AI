@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { saveToStore, STORE_KEYS } from "@/lib/store";
 import {
   ChevronRight,
   ChevronLeft,
@@ -280,9 +281,10 @@ export default function OnboardingPage() {
     if (currentStep < STEPS.length) {
       setCurrentStep((s) => s + 1);
     } else {
-      // Final step — save and redirect
+      // Final step — save profile and redirect
       setLoading(true);
-      await new Promise((r) => setTimeout(r, 1500)); // simulate API call
+      saveToStore(STORE_KEYS.ONBOARDING, formData);
+      await new Promise((r) => setTimeout(r, 800));
       router.push("/ikigai");
     }
   };
