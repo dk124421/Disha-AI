@@ -350,3 +350,10 @@ h1, h2, h3, h4, h5, h6 {
 .progress-gradient {
   background: linear-gradient(90deg, #7c3aed, #22d3ee);
 }
+
+/* ─── SLIDE UP TOAST ──────────────────────────────────── */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slideUp { animation: slideUp 0.35s ease forwards; }

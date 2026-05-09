@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Sparkles, ArrowRight, Brain, Target, Map, Briefcase, TrendingUp, MapPin, Star, CheckCircle, Zap, MessageCircle, BarChart2, LogOut, User, UploadCloud, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { loadFromStore, STORE_KEYS, uploadAvatar } from "@/lib/store";
+import { loadFromStore, STORE_KEYS, uploadAvatar, getDashboardSummary, loadSkillAnalysis } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 
 type Profile = { name?: string; location_city?: string; education_level?: string };
@@ -15,7 +15,7 @@ type Roadmap = { title?: string; phases?: { milestones: unknown[] }[] };
 const NAV_ITEMS = [
   { href: "/ikigai", icon: Brain, label: "IKIGAI Quiz", desc: "Discover your sweet spot", color: "#a855f7", badge: null },
   { href: "/career", icon: Target, label: "Career Matches", desc: "View your AI matches", color: "#22d3ee", badge: null },
-  { href: "/twin", icon: Sparkles, label: "Career AI Twin", desc: "5-Year simulation", color: "#f43f5e", badge: "New" },
+  { href: "/skill", icon: BarChart2, label: "Skill Analyzer", desc: "Find your skill gaps", color: "#f43f5e", badge: "New" },
   { href: "/roadmap", icon: Map, label: "My Roadmap", desc: "Your learning path", color: "#f59e0b", badge: null },
   { href: "/opportunities", icon: Briefcase, label: "Opportunities", desc: "Jobs, gigs & schemes", color: "#10b981", badge: null },
   { href: "/chat", icon: MessageCircle, label: "Chat with Disha", desc: "Your AI mentor", color: "#3b82f6", badge: null },
@@ -40,6 +40,8 @@ export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [liveProgress, setLiveProgress] = useState<number | null>(null);
+  const [skillReadiness, setSkillReadiness] = useState<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -49,7 +51,21 @@ export default function DashboardPage() {
     setRoadmap(loadFromStore<Roadmap>(STORE_KEYS.ROADMAP));
     setMilestones(loadFromStore<Record<string, boolean>>("disha_milestones") || {});
     setInsight(INSIGHTS[Math.floor(Date.now() / 86400000) % INSIGHTS.length]);
+    // Load local skill analysis
+    const localSkill = loadSkillAnalysis();
+    if (localSkill?.readiness_score) setSkillReadiness(localSkill.readiness_score as number);
   }, []);
+
+  // Load live Supabase summary
+  useEffect(() => {
+    if (!user?.id) return;
+    getDashboardSummary(user.id).then((summary) => {
+      if (!summary) return;
+      if (summary.milestoneProgress != null) setLiveProgress(summary.milestoneProgress);
+      if (summary.latestSkillAnalysis?.readiness_score != null)
+        setSkillReadiness(summary.latestSkillAnalysis.readiness_score as number);
+    });
+  }, [user?.id]);
 
   useEffect(() => {
     if (user?.user_metadata?.avatar_url) {
@@ -71,7 +87,7 @@ export default function DashboardPage() {
   const topCareer = careerData?.careers?.[0];
   const totalMilestones = roadmap?.phases?.reduce((sum, p) => sum + p.milestones.length, 0) || 0;
   const doneMilestones = Object.values(milestones).filter(Boolean).length;
-  const roadmapProgress = totalMilestones > 0 ? Math.round((doneMilestones / totalMilestones) * 100) : 0;
+  const roadmapProgress = liveProgress ?? (totalMilestones > 0 ? Math.round((doneMilestones / totalMilestones) * 100) : 0);
 
   if (!mounted) return null;
 
@@ -184,8 +200,8 @@ export default function DashboardPage() {
           {[
             { label: "IKIGAI Score", value: ikigai?.ikigai_score ? `${ikigai.ikigai_score}%` : "—", icon: Brain, color: "#a855f7", sub: "Overall fit" },
             { label: "Career Matches", value: careerData?.careers?.length || "—", icon: Target, color: "#22d3ee", sub: "AI generated" },
-            { label: "Roadmap Progress", value: `${roadmapProgress}%`, icon: BarChart2, color: "#f59e0b", sub: `${doneMilestones}/${totalMilestones} done` },
-            { label: "Top Match Score", value: topCareer?.reality_scores?.passion_fit ? `${topCareer.reality_scores.passion_fit}%` : "—", icon: Star, color: "#10b981", sub: "Passion fit" },
+            { label: "Roadmap Progress", value: `${roadmapProgress}%`, icon: BarChart2, color: "#f59e0b", sub: liveProgress != null ? "Live from cloud" : `${doneMilestones}/${totalMilestones} done` },
+            { label: "Skill Readiness", value: skillReadiness != null ? `${skillReadiness}%` : "—", icon: Star, color: "#10b981", sub: skillReadiness != null ? "AI assessed" : "Run Skill Analyzer" },
           ].map((stat) => (
             <div key={stat.label} className="glass gradient-border rounded-2xl p-4">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: `${stat.color}18` }}>

@@ -5,6 +5,7 @@ import { Send, Sparkles, Compass, RotateCcw, Bot, User } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { getOrCreateConversation, loadChatMessages, saveChatMessage } from "@/lib/store";
+import { recallRelevantMemory, embedAndStoreMessage } from "@/lib/embeddings";
 
 interface Message {
   id: string;
@@ -100,6 +101,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState("");
+  const [memoryActive, setMemoryActive] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -150,6 +152,14 @@ export default function ChatPage() {
     }
 
     try {
+      // Phase 2: Recall semantic memory before sending
+      let memoryContext: string[] = [];
+      if (user?.id && text.length > 20) {
+        memoryContext = await recallRelevantMemory(text, user.id, 4);
+        if (memoryContext.length > 0) setMemoryActive(true);
+        else setMemoryActive(false);
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -158,6 +168,7 @@ export default function ChatPage() {
             role: m.role,
             content: m.content,
           })),
+          memory_context: memoryContext.length > 0 ? memoryContext : undefined,
         }),
       });
 
@@ -195,6 +206,10 @@ export default function ChatPage() {
 
                 if (convId) {
                   saveChatMessage(convId, "assistant", fullContent);
+                  // Phase 2: Background embed the user message for future memory recall
+                  if (user?.id) {
+                    embedAndStoreMessage(user.id, Date.now().toString(), text).catch(() => {});
+                  }
                 }
               }
             } catch {
@@ -243,7 +258,9 @@ export default function ChatPage() {
               <h1 className="font-display font-semibold text-white text-sm">Disha — AI Career Mentor</h1>
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-glow" />
-                <span className="text-xs text-slate-400">Online · Emotionally intelligent</span>
+                <span className="text-xs text-slate-400">
+                  {memoryActive ? "✦ Disha remembers your past conversations" : "Online · Emotionally intelligent"}
+                </span>
               </div>
             </div>
           </div>

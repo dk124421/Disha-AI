@@ -52,3 +52,6 @@ coverage/
 *.pem
 .vercel
 .netlify
+
+# Documentation
+disha_ai_antigravity_master_prompt.md

@@ -275,3 +275,149 @@ export async function uploadAvatar(file: File, userId: string): Promise<string |
     return null;
   }
 }
+
+// ─── PHASE 2: SKILL ANALYSIS ──────────────────────────────────────────────
+
+export async function saveSkillAnalysis(
+  analysis: Record<string, unknown>,
+  userId?: string
+): Promise<void> {
+  saveToStore("disha_skill_analysis", analysis);
+  if (!userId) return;
+
+  try {
+    const supabase = await getSupabase();
+    await supabase.from("skill_analyses").insert([{
+      user_id: userId,
+      career_target: analysis.career_target as string | null,
+      current_skills: analysis.strengths || [],
+      skill_gaps: analysis.skill_gaps || [],
+      strengths: Array.isArray(analysis.strengths)
+        ? (analysis.strengths as Record<string, unknown>[]).map((s) => s.skill as string)
+        : [],
+      improvement_areas: Array.isArray(analysis.skill_gaps)
+        ? (analysis.skill_gaps as Record<string, unknown>[]).map((g) => g.skill as string)
+        : [],
+      readiness_score: analysis.readiness_score as number ?? 0,
+      learning_roadmap: analysis.learning_path || [],
+      raw_input: analysis.raw_input as string | null,
+      ai_analysis: analysis,
+      updated_at: new Date().toISOString(),
+    }]);
+  } catch (e) {
+    console.warn("Supabase skill analysis save failed (offline mode):", e);
+  }
+}
+
+export function loadSkillAnalysis(): Record<string, unknown> | null {
+  return loadFromStore<Record<string, unknown>>("disha_skill_analysis");
+}
+
+// ─── PHASE 2: MILESTONE PROGRESS ─────────────────────────────────────────
+
+export async function saveMilestoneProgress(
+  roadmapId: string,
+  milestoneKey: string,
+  isCompleted: boolean,
+  userId: string,
+  aiFeedback?: string
+): Promise<void> {
+  try {
+    const supabase = await getSupabase();
+    await supabase.from("roadmap_progress").upsert({
+      user_id: userId,
+      roadmap_id: roadmapId,
+      milestone_key: milestoneKey,
+      is_completed: isCompleted,
+      completed_at: isCompleted ? new Date().toISOString() : null,
+      ai_feedback: aiFeedback || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "roadmap_id,milestone_key" });
+  } catch (e) {
+    console.warn("Milestone progress save failed:", e);
+  }
+}
+
+export async function loadMilestoneProgress(
+  roadmapId: string
+): Promise<Record<string, boolean>> {
+  try {
+    const supabase = await getSupabase();
+    const { data } = await supabase
+      .from("roadmap_progress")
+      .select("milestone_key, is_completed")
+      .eq("roadmap_id", roadmapId);
+
+    if (!data) return {};
+
+    return data.reduce<Record<string, boolean>>((acc, row) => {
+      acc[row.milestone_key] = row.is_completed;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+// ─── PHASE 2: DASHBOARD SUMMARY ──────────────────────────────────────────
+
+export async function getDashboardSummary(userId: string) {
+  try {
+    const supabase = await getSupabase();
+
+    const [profileRes, roadmapRes, careerRes, skillRes, conversationRes] = await Promise.all([
+      supabase.from("profiles").select("*").eq("user_id", userId).maybeSingle(),
+      supabase
+        .from("roadmaps")
+        .select("id, title, total_duration_weeks, status")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .maybeSingle(),
+      supabase
+        .from("career_matches")
+        .select("career_title, reality_scores")
+        .eq("user_id", userId)
+        .eq("is_primary", true)
+        .maybeSingle(),
+      supabase
+        .from("skill_analyses")
+        .select("readiness_score, career_target, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("conversations")
+        .select("id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    // Roadmap progress
+    let milestoneProgress = 0;
+    if (roadmapRes.data?.id) {
+      const { data: progressRows } = await supabase
+        .from("roadmap_progress")
+        .select("is_completed")
+        .eq("roadmap_id", roadmapRes.data.id);
+      if (progressRows && progressRows.length > 0) {
+        const completed = progressRows.filter((r) => r.is_completed).length;
+        milestoneProgress = Math.round((completed / progressRows.length) * 100);
+      }
+    }
+
+    return {
+      profile: profileRes.data,
+      activeRoadmap: roadmapRes.data,
+      primaryCareer: careerRes.data,
+      latestSkillAnalysis: skillRes.data,
+      milestoneProgress,
+      hasConversation: !!conversationRes.data,
+    };
+  } catch (e) {
+    console.warn("Dashboard summary load failed:", e);
+    return null;
+  }
+}

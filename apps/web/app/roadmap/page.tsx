@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { CheckCircle, Circle, ChevronDown, ChevronUp, Download, Sparkles, BookOpen, Trophy, ExternalLink, ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { loadFromStore, saveToStore, STORE_KEYS, saveRoadmapData } from "@/lib/store";
+import { loadFromStore, saveToStore, STORE_KEYS, saveRoadmapData, saveMilestoneProgress, loadMilestoneProgress } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 
 type Resource = { title: string; url: string; free: boolean };
@@ -61,10 +61,12 @@ const FALLBACK_ROADMAP: Roadmap = {
 export default function RoadmapPage() {
   const { user } = useAuth();
   const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
+  const [roadmapId, setRoadmapId] = useState<string | null>(null);
   const [milestoneStates, setMilestoneStates] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 0: true });
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [feedbackToast, setFeedbackToast] = useState<{ message: string; next_focus: string } | null>(null);
 
   useEffect(() => {
     const savedRoadmap = loadFromStore<Roadmap>(STORE_KEYS.ROADMAP);
@@ -74,11 +76,26 @@ export default function RoadmapPage() {
     if (savedRoadmap) {
       setRoadmap(savedRoadmap);
       setLoading(false);
+      // Load fine-grained progress from Supabase if we have a roadmap ID
+      if (user?.id) {
+        import("@/lib/supabase").then(({ createClient }) => {
+          const sb = createClient();
+          sb.from("roadmaps").select("id").eq("user_id", user.id).eq("status", "active").maybeSingle()
+            .then(({ data }) => {
+              if (data?.id) {
+                setRoadmapId(data.id);
+                loadMilestoneProgress(data.id).then((prog) => {
+                  if (Object.keys(prog).length > 0) setMilestoneStates(prog);
+                });
+              }
+            });
+        });
+      }
     } else {
       generateRoadmap();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]);
 
   const generateRoadmap = async () => {
     setGenerating(true);
@@ -106,11 +123,40 @@ export default function RoadmapPage() {
     setLoading(false);
   };
 
-  const toggleMilestone = (phaseIdx: number, milestoneIdx: number) => {
+  const toggleMilestone = async (phaseIdx: number, milestoneIdx: number) => {
     const key = `${phaseIdx}-${milestoneIdx}`;
-    const updated = { ...milestoneStates, [key]: !milestoneStates[key] };
+    const nowDone = !milestoneStates[key];
+    const updated = { ...milestoneStates, [key]: nowDone };
     setMilestoneStates(updated);
     saveRoadmapData(roadmap, updated, user?.id);
+    // Fine-grained Supabase persistence
+    if (roadmapId && user?.id) {
+      await saveMilestoneProgress(roadmapId, key, nowDone, user.id);
+    }
+    // Show AI feedback on completion
+    if (nowDone && roadmap) {
+      const phase = roadmap.phases[phaseIdx];
+      const ms = phase?.milestones?.[milestoneIdx];
+      if (ms) {
+        try {
+          const res = await fetch("/api/roadmap/milestone-feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              milestone_title: ms.title,
+              milestone_description: ms.deliverable,
+              career_target: roadmap.career,
+              user_name: user?.user_metadata?.full_name?.split(" ")[0] || "friend",
+            }),
+          });
+          if (res.ok) {
+            const fb = await res.json();
+            setFeedbackToast(fb);
+            setTimeout(() => setFeedbackToast(null), 7000);
+          }
+        } catch { /* silent */ }
+      }
+    }
   };
 
   const getTotalProgress = () => {
@@ -151,6 +197,21 @@ export default function RoadmapPage() {
     <div className="min-h-screen bg-[#050508] px-4 py-12">
       <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
       <div className="absolute inset-0 bg-grid opacity-20" />
+
+      {/* AI Feedback Toast */}
+      {feedbackToast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full animate-slideUp">
+          <div className="rounded-2xl border border-emerald-500/30 bg-[#0d1f18]/95 backdrop-blur-xl p-5 shadow-2xl shadow-emerald-900/30">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-lg">🎉</span>
+              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Milestone Complete!</span>
+            </div>
+            <p className="text-sm text-white leading-relaxed mb-2">{feedbackToast.message}</p>
+            <p className="text-xs text-emerald-400/70">{feedbackToast.next_focus}</p>
+            <button onClick={() => setFeedbackToast(null)} className="absolute top-3 right-3 text-slate-600 hover:text-slate-400 text-lg leading-none">×</button>
+          </div>
+        </div>
+      )}
 
       <div className="relative z-10 max-w-3xl mx-auto">
         {/* Header */}

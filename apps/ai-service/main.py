@@ -12,12 +12,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", "AIzaSyBv-7jo5BZVJZ50v9mlXGDQHsgT9kPw_Ec"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
 
 app = FastAPI(
     title="Disha AI — AI Service",
     description="Multi-agent AI orchestration for Disha AI platform",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 app.add_middleware(
@@ -28,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── MODELS ──────────────────────────────────────────────────
+# ─── MODELS ──────────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
     role: str
@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     user_profile: Optional[dict] = None
     conversation_id: Optional[str] = None
+    memory_context: Optional[List[str]] = None  # Phase 2: injected past context
 
 class IkigaiRequest(BaseModel):
     loves: List[str]
@@ -64,12 +65,46 @@ class OpportunityRequest(BaseModel):
     career_interests: Optional[List[str]] = None
     education_level: Optional[str] = None
 
-# ─── GEMINI HELPERS ──────────────────────────────────────────
+# ─── Phase 2 Models ──────────────────────────────────────────────────────────
+
+class SkillAnalyzeRequest(BaseModel):
+    raw_skills_text: str                          # free text: "I know Python, React, a bit of SQL"
+    career_target: Optional[str] = None           # "Full Stack Developer"
+    github_url: Optional[str] = None
+    user_profile: Optional[dict] = None
+    current_skills: Optional[List[str]] = None
+
+class EmbedRequest(BaseModel):
+    text: str
+
+class MemoryRecallRequest(BaseModel):
+    query_embedding: List[float]                  # 768-dim embedding
+    user_id: str
+    limit: Optional[int] = 5
+
+class CareerSearchRequest(BaseModel):
+    query: str                                    # "creative tech career remote"
+    user_profile: Optional[dict] = None
+
+class MilestoneFeedbackRequest(BaseModel):
+    milestone_title: str
+    milestone_description: str
+    career_target: Optional[str] = None
+    user_name: Optional[str] = None
+
+class MarketTrendsRequest(BaseModel):
+    career_title: str
+    location: Optional[str] = "India"
+
+# ─── GEMINI HELPERS ──────────────────────────────────────────────────────────
 
 def get_gemini_model(model_name: str = "gemini-2.0-flash"):
     return genai.GenerativeModel(model_name)
 
-def build_system_prompt_mentor(user_profile: Optional[dict] = None) -> str:
+def get_embedding_model():
+    return "models/text-embedding-004"
+
+def build_system_prompt_mentor(user_profile: Optional[dict] = None, memory_context: Optional[List[str]] = None) -> str:
     profile_context = ""
     if user_profile:
         name = user_profile.get("full_name", "friend")
@@ -80,6 +115,15 @@ You are talking to {name}, a {education} from {location}.
 Their interests: {', '.join(user_profile.get('interests', []))}
 Their goals: {user_profile.get('life_goals', 'Not specified')}
 """
+
+    memory_section = ""
+    if memory_context and len(memory_context) > 0:
+        memory_section = f"""
+[MEMORY — Context from past conversations]
+{chr(10).join(f'- {m}' for m in memory_context)}
+Use this context to give more personalized, continuous guidance. Reference it naturally when relevant.
+"""
+
     return f"""You are Disha, an emotionally intelligent AI career mentor for Indian students and young professionals.
 
 Your personality:
@@ -92,6 +136,7 @@ Your personality:
 - You balance emotional support with practical strategy
 
 {profile_context}
+{memory_section}
 
 Guidelines:
 - Ask reflective follow-up questions when needed
@@ -104,53 +149,51 @@ Guidelines:
 
 Remember: You are NOT a job portal. You help people discover PURPOSE and DIRECTION."""
 
-# ─── ENDPOINTS ───────────────────────────────────────────────
+# ─── PHASE 1 ENDPOINTS ───────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "service": "disha-ai-service", "version": "1.0.0"}
+    return {"status": "healthy", "service": "disha-ai-service", "version": "2.0.0"}
 
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """Streaming AI mentor chat via SSE"""
-    
+    """Streaming AI mentor chat via SSE — Phase 2: supports injected memory context"""
+
     async def generate() -> AsyncGenerator[str, None]:
         try:
             model = get_gemini_model()
-            system_prompt = build_system_prompt_mentor(request.user_profile)
-            
-            # Build conversation history
+            system_prompt = build_system_prompt_mentor(request.user_profile, request.memory_context)
+
             history = []
-            for msg in request.messages[:-1]:  # All but last
+            for msg in request.messages[:-1]:
                 history.append({
                     "role": "user" if msg.role == "user" else "model",
                     "parts": [msg.content]
                 })
-            
+
             chat = model.start_chat(history=history)
-            
-            # Add system context to first message if history is empty
+
             last_msg = request.messages[-1].content
             if not history:
                 last_msg = f"{system_prompt}\n\nUser: {last_msg}"
-            
+
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: chat.send_message(last_msg, stream=True)
             )
-            
+
             for chunk in response:
                 if chunk.text:
                     data = json.dumps({"content": chunk.text, "done": False})
                     yield f"data: {data}\n\n"
                     await asyncio.sleep(0)
-            
+
             yield f"data: {json.dumps({'content': '', 'done': True})}\n\n"
-            
+
         except Exception as e:
             error_data = json.dumps({"error": str(e), "done": True})
             yield f"data: {error_data}\n\n"
-    
+
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
@@ -164,9 +207,9 @@ async def chat_stream(request: ChatRequest):
 @app.post("/ikigai/analyze")
 async def analyze_ikigai(request: IkigaiRequest):
     """Analyze IKIGAI inputs and generate career insights"""
-    
+
     model = get_gemini_model()
-    
+
     prompt = f"""You are an expert IKIGAI career analyst. Analyze this person's IKIGAI inputs and generate career insights.
 
 LOVES (What they love): {', '.join(request.loves)}
@@ -193,7 +236,6 @@ Respond with a JSON object (no markdown) with this exact structure:
     try:
         response = model.generate_content(prompt)
         text = response.text.strip()
-        # Clean markdown if present
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -205,9 +247,9 @@ Respond with a JSON object (no markdown) with this exact structure:
 @app.post("/career/match")
 async def match_careers(request: CareerMatchRequest):
     """Generate personalized career matches with Reality Scores"""
-    
+
     model = get_gemini_model()
-    
+
     prompt = f"""You are an expert career counselor for Indian students. Generate the top 5 career matches.
 
 User Data:
@@ -260,9 +302,9 @@ Respond with JSON only (no markdown):
 @app.post("/roadmap/generate")
 async def generate_roadmap(request: RoadmapRequest):
     """Generate a personalized learning roadmap"""
-    
+
     model = get_gemini_model()
-    
+
     prompt = f"""Generate a detailed, actionable learning roadmap for someone pursuing: {request.career_title}
 
 Timeline: {request.timeline_weeks} weeks
@@ -314,11 +356,11 @@ Respond with JSON only (no markdown):
 @app.post("/opportunity/local")
 async def find_local_opportunities(request: OpportunityRequest):
     """Find hyper-local opportunities based on location"""
-    
+
     model = get_gemini_model()
-    
+
     location = f"{request.district}, {request.state}" if request.district else request.state or "India"
-    
+
     prompt = f"""Generate realistic local career opportunities for: {location}
 Career interests: {', '.join(request.career_interests) if request.career_interests else 'General'}
 Education level: {request.education_level or 'Student'}
@@ -364,6 +406,249 @@ Respond with JSON only (no markdown):
         return json.loads(text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Opportunity search failed: {str(e)}")
+
+# ─── PHASE 2 ENDPOINTS ───────────────────────────────────────────────────────
+
+@app.post("/skill/analyze")
+async def analyze_skills(request: SkillAnalyzeRequest):
+    """Phase 2: Full skill gap analysis — returns gaps, strengths, readiness score, learning plan"""
+
+    model = get_gemini_model()
+
+    github_section = ""
+    if request.github_url:
+        github_section = f"\nGitHub Profile: {request.github_url} (assume active developer based on this URL)"
+
+    skills_list = ", ".join(request.current_skills) if request.current_skills else "Not separately listed"
+
+    prompt = f"""You are an expert career skill analyst. Perform a deep skill gap analysis.
+
+User's Raw Skills Description: "{request.raw_skills_text}"
+Parsed Skills List: {skills_list}
+{github_section}
+Career Target: {request.career_target or "General tech/professional career"}
+User Profile: {json.dumps(request.user_profile) if request.user_profile else "Indian student/professional"}
+
+Analyze gaps, strengths, and market readiness. Focus on the Indian job market context.
+
+Respond with JSON only (no markdown):
+{{
+  "readiness_score": 65,
+  "readiness_label": "Intermediate",
+  "readiness_description": "2-sentence honest assessment of where they stand",
+  "strengths": [
+    {{
+      "skill": "Python",
+      "level": "Advanced",
+      "market_value": "High",
+      "description": "Why this skill is valuable"
+    }}
+  ],
+  "skill_gaps": [
+    {{
+      "skill": "System Design",
+      "priority": "High",
+      "why_needed": "Essential for senior roles",
+      "estimated_learning_weeks": 6,
+      "resources": [
+        {{"title": "Resource name", "type": "course/book/project", "url": "", "is_free": true, "estimated_hours": 20}}
+      ]
+    }}
+  ],
+  "quick_wins": ["3 things they can do in the next 2 weeks to improve dramatically"],
+  "learning_path": [
+    {{
+      "week_range": "1-4",
+      "focus": "What to learn",
+      "goal": "Specific outcome",
+      "resources": ["resource 1", "resource 2"]
+    }}
+  ],
+  "portfolio_suggestions": [
+    {{
+      "project": "Project idea",
+      "skills_demonstrated": ["skill1", "skill2"],
+      "difficulty": "Beginner/Intermediate/Advanced",
+      "impact": "Why this project matters for the target career"
+    }}
+  ],
+  "market_insights": {{
+    "demand_level": "High",
+    "avg_salary_inr": 800000,
+    "top_hiring_companies": ["company1", "company2"],
+    "remote_friendly": true,
+    "tier2_friendly": true
+  }},
+  "personalized_advice": "3-4 sentence warm, honest, strategic advice from Disha"
+}}"""
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Skill analysis failed: {str(e)}")
+
+
+@app.post("/memory/embed")
+async def generate_embedding(request: EmbedRequest):
+    """Phase 2: Generate a 768-dim text embedding using Gemini text-embedding-004"""
+    try:
+        result = genai.embed_content(
+            model=get_embedding_model(),
+            content=request.text,
+            task_type="RETRIEVAL_DOCUMENT"
+        )
+        return {"embedding": result["embedding"], "dimensions": len(result["embedding"])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Embedding generation failed: {str(e)}")
+
+
+@app.post("/memory/recall-query-embedding")
+async def get_recall_query_embedding(request: EmbedRequest):
+    """Phase 2: Generate embedding optimized for retrieval query (used before calling match_messages in Supabase)"""
+    try:
+        result = genai.embed_content(
+            model=get_embedding_model(),
+            content=request.text,
+            task_type="RETRIEVAL_QUERY"
+        )
+        return {"embedding": result["embedding"], "dimensions": len(result["embedding"])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Query embedding failed: {str(e)}")
+
+
+@app.post("/career/search")
+async def semantic_career_search(request: CareerSearchRequest):
+    """Phase 2: Semantic career search — returns relevant careers from natural language query"""
+
+    model = get_gemini_model()
+
+    prompt = f"""The user is searching for careers using this query: "{request.query}"
+User Profile: {json.dumps(request.user_profile) if request.user_profile else "Indian student/professional"}
+
+Interpret the intent and return 4-6 highly relevant career matches.
+Consider Indian market context, remote work, creativity, technical skills, and emerging roles.
+
+Respond with JSON only (no markdown):
+{{
+  "interpreted_intent": "What the user is really looking for",
+  "careers": [
+    {{
+      "title": "Career Title",
+      "category": "Category",
+      "match_reason": "Why this matches their search",
+      "tagline": "One-line description",
+      "reality_scores": {{
+        "passion_fit": 80,
+        "market_demand": 85,
+        "remote_possibility": 90,
+        "future_growth": 88
+      }},
+      "salary_range": {{"min": 600000, "max": 1800000, "currency": "INR"}},
+      "entry_difficulty": "Low/Medium/High"
+    }}
+  ],
+  "search_tip": "A personalized tip to help refine their search"
+}}"""
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Career search failed: {str(e)}")
+
+
+@app.post("/roadmap/milestone-feedback")
+async def milestone_feedback(request: MilestoneFeedbackRequest):
+    """Phase 2: Generate personalized AI encouragement when a user completes a milestone"""
+
+    model = get_gemini_model()
+
+    name = request.user_name or "friend"
+    career = request.career_target or "your chosen career"
+
+    prompt = f"""The user just completed a learning milestone on their journey to become a {career}.
+
+Milestone Completed: "{request.milestone_title}"
+What they achieved: "{request.milestone_description}"
+
+Write a SHORT, warm, genuinely encouraging message from Disha (the AI mentor). 
+- Be specific about what completing this milestone means
+- Mention what exciting things come next
+- Keep it under 80 words
+- Feel human, not robotic
+- Address them as {name}
+
+Respond with JSON only:
+{{
+  "message": "Your encouragement message here",
+  "next_focus": "One sentence about what to focus on next",
+  "motivation_quote": "A relevant, non-clichéd quote or insight"
+}}"""
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Milestone feedback failed: {str(e)}")
+
+
+@app.get("/skill/market-trends")
+async def get_market_trends(career_title: str, location: str = "India"):
+    """Phase 2: Get real-time market demand insights for a specific career"""
+
+    model = get_gemini_model()
+
+    prompt = f"""Provide current (2025) market demand insights for: {career_title} in {location}
+
+Respond with JSON only (no markdown):
+{{
+  "demand_trend": "Rising/Stable/Declining",
+  "demand_score": 82,
+  "yoy_growth_percent": 23,
+  "avg_salary_inr": {{
+    "fresher": 500000,
+    "mid_level": 1200000,
+    "senior": 2500000
+  }},
+  "top_skills_in_demand": ["skill1", "skill2", "skill3", "skill4", "skill5"],
+  "top_hiring_cities": ["Bengaluru", "Pune", "Hyderabad"],
+  "remote_jobs_percent": 45,
+  "ai_disruption_risk": "Low/Medium/High",
+  "ai_disruption_explanation": "How AI impacts this role",
+  "emerging_specializations": ["specialization1", "specialization2"],
+  "key_companies_hiring": ["Company1", "Company2", "Company3"],
+  "linkedin_job_count_estimate": "50,000+",
+  "certifications_that_help": ["cert1", "cert2"],
+  "market_insight": "2-3 sentence strategic insight about this career's future in India"
+}}"""
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Market trends fetch failed: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
