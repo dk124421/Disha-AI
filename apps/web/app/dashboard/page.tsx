@@ -15,10 +15,13 @@ type Roadmap = { title?: string; phases?: { milestones: unknown[] }[] };
 const NAV_ITEMS = [
   { href: "/ikigai", icon: Brain, label: "IKIGAI Quiz", desc: "Discover your sweet spot", color: "#a855f7", badge: null },
   { href: "/career", icon: Target, label: "Career Matches", desc: "View your AI matches", color: "#22d3ee", badge: null },
-  { href: "/skill", icon: BarChart2, label: "Skill Analyzer", desc: "Find your skill gaps", color: "#f43f5e", badge: "New" },
+  { href: "/skill", icon: BarChart2, label: "Skill Analyzer", desc: "Find your skill gaps", color: "#f43f5e", badge: null },
   { href: "/roadmap", icon: Map, label: "My Roadmap", desc: "Your learning path", color: "#f59e0b", badge: null },
+  { href: "/twin", icon: Sparkles, label: "Career Twin", desc: "Simulate your future", color: "#7c3aed", badge: "New" },
+  { href: "/analytics", icon: TrendingUp, label: "Analytics", desc: "Career intelligence", color: "#06b6d4", badge: "New" },
   { href: "/opportunities", icon: Briefcase, label: "Opportunities", desc: "Jobs, gigs & schemes", color: "#10b981", badge: null },
   { href: "/chat", icon: MessageCircle, label: "Chat with Disha", desc: "Your AI mentor", color: "#3b82f6", badge: null },
+  { href: "/settings", icon: Star, label: "Settings", desc: "AI provider & privacy", color: "#64748b", badge: null },
 ];
 
 const INSIGHTS = [

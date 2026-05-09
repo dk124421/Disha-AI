@@ -357,3 +357,28 @@ h1, h2, h3, h4, h5, h6 {
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-slideUp { animation: slideUp 0.35s ease forwards; }
+
+/* ─── PHASE 3: MODAL SCALE-IN ─────────────────────────── */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+/* ─── PHASE 3: SALARY ARC ─────────────────────────────── */
+@keyframes arcFill {
+  from { stroke-dasharray: 0 251.33; }
+}
+.arc-animate { animation: arcFill 1s ease forwards; }
+
+/* ─── PHASE 3: STRESS METER COLORS ───────────────────── */
+.stress-low  { --meter-color: #10b981; }
+.stress-mid  { --meter-color: #f59e0b; }
+.stress-high { --meter-color: #f43f5e; }
+
+/* ─── PHASE 3: DAY-IN-LIFE BLOCK TYPES ───────────────── */
+.block-deep-work { border-color: rgba(124,58,237,0.4); background: rgba(124,58,237,0.08); }
+.block-meeting   { border-color: rgba(34,211,238,0.4); background: rgba(34,211,238,0.08); }
+.block-break     { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
+.block-learning  { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+.block-personal  { border-color: rgba(244,63,94,0.4);  background: rgba(244,63,94,0.08); }

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, List, AsyncGenerator
 import json
 import asyncio
+import httpx
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
@@ -96,6 +97,34 @@ class MarketTrendsRequest(BaseModel):
     career_title: str
     location: Optional[str] = "India"
 
+# ─── Phase 3 Models ──────────────────────────────────────────────────────────
+
+class TwinSimulateRequest(BaseModel):
+    career: dict                                  # { title, top_skills, ... }
+    user_profile: Optional[dict] = None
+    years: Optional[int] = 5
+
+class DayInLifeRequest(BaseModel):
+    career_title: str
+    year: int                                     # 1, 3, or 5
+    user_profile: Optional[dict] = None
+
+class CareerForecastRequest(BaseModel):
+    career_title: str
+    location: Optional[str] = "India"
+
+class UserInsightsRequest(BaseModel):
+    user_id: str
+    milestones_completed: Optional[int] = 0
+    total_milestones: Optional[int] = 0
+    career_title: Optional[str] = None
+    skill_readiness: Optional[float] = None
+
+class OllamaConfigRequest(BaseModel):
+    enabled: bool
+    model: Optional[str] = "llama3"
+    base_url: Optional[str] = "http://localhost:11434"
+
 # ─── GEMINI HELPERS ──────────────────────────────────────────────────────────
 
 def get_gemini_model(model_name: str = "gemini-2.0-flash"):
@@ -103,6 +132,34 @@ def get_gemini_model(model_name: str = "gemini-2.0-flash"):
 
 def get_embedding_model():
     return "models/text-embedding-004"
+
+# ─── PROVIDER STATE (Phase 3) ─────────────────────────────────────────────────
+
+_provider_state = {
+    "provider": "gemini",        # "gemini" | "ollama"
+    "ollama_model": "llama3",
+    "ollama_base_url": "http://localhost:11434",
+}
+
+async def ai_generate(prompt: str, system_prompt: str = "") -> str:
+    """Unified generation — routes to Gemini or Ollama based on active provider."""
+    if _provider_state["provider"] == "ollama":
+        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{_provider_state['ollama_base_url']}/api/generate",
+                    json={"model": _provider_state["ollama_model"], "prompt": full_prompt, "stream": False}
+                )
+                data = resp.json()
+                return data.get("response", "")
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Ollama not reachable: {e}")
+    else:
+        model = get_gemini_model()
+        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+        response = model.generate_content(full_prompt)
+        return response.text
 
 def build_system_prompt_mentor(user_profile: Optional[dict] = None, memory_context: Optional[List[str]] = None) -> str:
     profile_context = ""
@@ -648,6 +705,205 @@ Respond with JSON only (no markdown):
         return json.loads(text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Market trends fetch failed: {str(e)}")
+
+
+# ─── PHASE 3 ENDPOINTS ───────────────────────────────────────────────────────
+
+# ── Ollama / Provider Config ──────────────────────────────────────────────────
+
+@app.get("/config/provider")
+async def get_provider():
+    """Return active AI provider + connection status."""
+    result = {
+        "provider": _provider_state["provider"],
+        "ollama_model": _provider_state["ollama_model"],
+        "ollama_base_url": _provider_state["ollama_base_url"],
+        "ollama_available": False,
+        "available_models": [],
+    }
+    if _provider_state["provider"] == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{_provider_state['ollama_base_url']}/api/tags")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    result["ollama_available"] = True
+                    result["available_models"] = [m["name"] for m in data.get("models", [])]
+        except Exception:
+            result["ollama_available"] = False
+    return result
+
+@app.post("/config/set-provider")
+async def set_provider(cfg: OllamaConfigRequest):
+    """Switch between Gemini and Ollama providers."""
+    if cfg.enabled:
+        _provider_state["provider"] = "ollama"
+        _provider_state["ollama_model"] = cfg.model or "llama3"
+        _provider_state["ollama_base_url"] = cfg.base_url or "http://localhost:11434"
+        # Verify Ollama is reachable
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{_provider_state['ollama_base_url']}/api/tags")
+                if resp.status_code != 200:
+                    raise Exception("Non-200 response")
+            return {"provider": "ollama", "model": cfg.model, "status": "connected"}
+        except Exception as e:
+            _provider_state["provider"] = "gemini"
+            raise HTTPException(status_code=503, detail=f"Ollama not reachable at {cfg.base_url}: {e}")
+    else:
+        _provider_state["provider"] = "gemini"
+        return {"provider": "gemini", "status": "connected"}
+
+
+# ── Enhanced Twin Simulation ──────────────────────────────────────────────────
+
+@app.post("/twin/simulate")
+async def twin_simulate(request: TwinSimulateRequest):
+    """Enhanced 5-year Career Twin with stress, ai_risk, work-life, skills per year."""
+    career_title = request.career.get("title", "Software Engineer")
+    user_name = request.user_profile.get("name", "friend") if request.user_profile else "friend"
+    top_skills = request.career.get("top_skills", [])
+
+    prompt = f"""You are simulating a detailed 5-year career journey for {user_name} pursuing: {career_title}.
+Key skills they currently have: {', '.join(top_skills) if top_skills else 'beginner level'}.
+
+Generate a JSON array called "simulation" with exactly {request.years} objects, one per year.
+Each year must have ALL of these fields:
+- year: int (1–{request.years})
+- title: job title that year
+- salary: salary range string (INR, e.g. "₹8L–₹12L")
+- salary_midpoint: int (in lakhs, e.g. 10)
+- lifestyle: 2-sentence description of daily life
+- milestone: key achievement that year
+- stress_level: int 0–100 (higher = more stressed)
+- work_life_balance: int 0–100 (higher = better balance)
+- ai_replacement_risk: int 0–100 (higher = more at risk)
+- skills_unlocked: array of 2–3 skill strings acquired that year
+- remote_possibility: int 0–100
+
+Context: Indian job market, realistic progression, emotionally honest.
+Respond ONLY with valid JSON: {{"simulation": [...]}}"""
+
+    try:
+        text = await ai_generate(prompt)
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Twin simulation failed: {str(e)}")
+
+
+# ── Day in the Life ───────────────────────────────────────────────────────────
+
+@app.post("/twin/day-in-life")
+async def day_in_life(request: DayInLifeRequest):
+    """Generate an immersive workday narrative at a given career year."""
+    prompt = f"""Generate a detailed "A Day in the Life" for a {request.career_title} at Year {request.year} of their career.
+
+Return a JSON object with:
+- year: {request.year}
+- mood: one word emotional tone of this year (e.g. "energized", "overwhelmed", "confident")
+- narrative: 3–4 sentence poetic description of this stage of life
+- schedule: array of exactly 8 time blocks, each with:
+  - time: string (e.g. "09:00")
+  - activity: short activity name
+  - description: 1 sentence detail
+  - type: one of "deep_work" | "meeting" | "break" | "learning" | "personal"
+- tips: array of 2 practical tips for thriving at this career stage
+
+Context: Indian professional, realistic day, emotionally honest.
+Respond ONLY with valid JSON."""
+
+    try:
+        text = await ai_generate(prompt)
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Day in life generation failed: {str(e)}")
+
+
+# ── Career Forecast Analytics ─────────────────────────────────────────────────
+
+@app.post("/analytics/career-forecast")
+async def career_forecast(request: CareerForecastRequest):
+    """Generate 5-year demand curve, automation risk trend, and salary market data."""
+    prompt = f"""Generate a career intelligence forecast for: {request.career_title} in {request.location}.
+
+Return a JSON object with:
+- career_title: "{request.career_title}"
+- demand_curve: array of 5 objects (one per year) each with:
+  - year: int (starting from current year)
+  - demand_index: int 0–100 (market demand)
+  - label: short label (e.g. "High Demand")
+- automation_risk_trend: array of 5 objects each with:
+  - year: int
+  - risk_percent: int 0–100
+  - note: one-line explanation
+- salary_market:
+  - entry_level: string (e.g. "₹4L–₹8L")
+  - mid_level: string
+  - senior_level: string
+  - projected_5yr_senior: string
+- top_hiring_companies: array of 5 company names
+- remote_work_index: int 0–100
+- outlook_summary: 2-sentence overall career outlook
+
+Respond ONLY with valid JSON."""
+
+    try:
+        text = await ai_generate(prompt)
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Career forecast failed: {str(e)}")
+
+
+# ── User Learning Insights ────────────────────────────────────────────────────
+
+@app.post("/analytics/user-insights")
+async def user_insights(request: UserInsightsRequest):
+    """Generate personalized learning velocity and trajectory insights."""
+    completion_rate = round((request.milestones_completed / request.total_milestones * 100), 1) if request.total_milestones > 0 else 0
+    career = request.career_title or "your chosen career"
+    skill_score = request.skill_readiness or 0
+
+    prompt = f"""A learner is working toward becoming a {career}.
+Stats:
+- Milestones completed: {request.milestones_completed} / {request.total_milestones} ({completion_rate}%)
+- Skill readiness score: {skill_score}%
+
+Generate a JSON object with:
+- velocity_label: one of "Accelerating" | "Steady" | "Needs Boost" | "Just Starting"
+- velocity_score: int 0–100
+- streak_message: motivational 1-sentence message about their progress
+- projected_ready_weeks: estimated weeks until job-ready (int)
+- insight: 2-sentence personalized insight about their trajectory
+- next_action: most important single next step they should take (1 sentence)
+- skill_gaps_to_watch: array of 2–3 skill area strings to focus on
+
+Respond ONLY with valid JSON."""
+
+    try:
+        text = await ai_generate(prompt)
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"User insights failed: {str(e)}")
 
 
 if __name__ == "__main__":
